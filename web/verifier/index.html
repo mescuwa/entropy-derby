@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Inside Track - Race Verifier</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 2rem; }
+        label { display: block; margin-top: 1rem; }
+        input { width: 100%; padding: 0.5rem; margin-top: 0.25rem; }
+        button { margin-top: 1.5rem; padding: 0.75rem 1.5rem; }
+        pre { background: #f4f4f4; padding: 1rem; overflow: auto; }
+        .result { margin-top: 2rem; }
+    </style>
+</head>
+<body>
+    <h1>Inside Track Race Verifier</h1>
+    <p>
+        Provide the server seed (revealed after the race), your client seed, and the nonce.
+        This page re-runs the provably fair RNG locally and reports the winner so you can
+        confirm the operator’s commitment.
+    </p>
+
+    <label>
+        Server Seed (revealed string)
+        <input id="serverSeed" type="text" placeholder="e.g., 6064f210d6cd..." />
+    </label>
+
+    <label>
+        Client Seed
+        <input id="clientSeed" type="text" placeholder="e.g., 42243f35fbc8..." />
+    </label>
+
+    <label>
+        Nonce (integer)
+        <input id="nonce" type="number" min="0" value="0" />
+    </label>
+
+    <label>
+        Expected Server Seed Hash (optional)
+        <input id="commitment" type="text" placeholder="Optional SHA-256 for extra validation" />
+    </label>
+
+    <button id="verifyButton">Verify Race</button>
+
+    <div class="result" id="result"></div>
+
+    <script>
+        const horses = [
+            { id: 0, name: "Red Comet", weight: 1.0 },
+            { id: 1, name: "Midnight Run", weight: 2.0 },
+            { id: 2, name: "Dust Devil", weight: 3.0 },
+            { id: 3, name: "Lucky Star",  weight: 4.0 },
+            { id: 4, name: "Iron Hoof",   weight: 5.0 },
+            { id: 5, name: "Wild Wind",   weight: 6.0 }
+        ];
+
+        function computeProbabilities() {
+            const total = horses.reduce((sum, h) => sum + h.weight, 0);
+            return horses.map(h => h.weight / total);
+        }
+
+        async function sha256Bytes(text) {
+            const data = new TextEncoder().encode(text);
+            const hash = await crypto.subtle.digest("SHA-256", data);
+            return new Uint8Array(hash);
+        }
+
+        function bytesToHex(bytes) {
+            return Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("");
+        }
+
+        async function hashSeed(seed) {
+            const bytes = await sha256Bytes(seed);
+            return bytesToHex(bytes);
+        }
+
+        async function provablyFairDraw(serverSeed, clientSeed, nonce, counter) {
+            const input = `${serverSeed}:${clientSeed}:${nonce}:${counter}`;
+            const bytes = await sha256Bytes(input);
+            let value = 0n;
+            for (let i = 0; i < 8; ++i) {
+                value = (value << 8n) | BigInt(bytes[i]);
+            }
+            const mask = (1n << 53n) - 1n;
+            value &= mask;
+            const denom = Number(1n << 53n);
+            return Number(value) / denom;
+        }
+
+        async function runRace(serverSeed, clientSeed, nonce) {
+            const probs = computeProbabilities();
+            const roll = await provablyFairDraw(serverSeed, clientSeed, nonce, 0);
+            let cumulative = 0;
+            for (let i = 0; i < probs.length; ++i) {
+                cumulative += probs[i];
+                if (roll < cumulative) {
+                    return { winner: horses[i], roll, probs };
+                }
+            }
+            return { winner: horses[horses.length - 1], roll, probs };
+        }
+
+        document.getElementById("verifyButton").addEventListener("click", async () => {
+            const serverSeed = document.getElementById("serverSeed").value.trim();
+            const clientSeed = document.getElementById("clientSeed").value.trim();
+            const nonceStr = document.getElementById("nonce").value.trim();
+            const commitment = document.getElementById("commitment").value.trim();
+            const resultEl = document.getElementById("result");
+            resultEl.textContent = "";
+
+            if (!serverSeed || !clientSeed || nonceStr === "") {
+                resultEl.textContent = "All required fields must be provided.";
+                return;
+            }
+
+            const nonce = Number(nonceStr);
+            if (!Number.isFinite(nonce) || nonce < 0) {
+                resultEl.textContent = "Nonce must be a non-negative integer.";
+                return;
+            }
+
+            try {
+                const race = await runRace(serverSeed, clientSeed, nonce);
+                let commitmentCheck = "";
+                if (commitment) {
+                    const computed = await hashSeed(serverSeed);
+                    commitmentCheck = computed === commitment
+                        ? "Commitment matches provided hash."
+                        : "Commitment does NOT match provided hash.";
+                }
+
+                resultEl.innerHTML = `
+                    <pre>
+Winner: ${race.winner.name} (ID ${race.winner.id})
+Random draw: ${race.roll}
+${commitment ? commitmentCheck : ""}
+Probabilities: ${race.probs.map(p => p.toFixed(6)).join(", ")}
+                    </pre>
+                `;
+            } catch (err) {
+                resultEl.textContent = `Verification failed: ${err.message}`;
+            }
+        });
+    </script>
+</body>
+</html>
+

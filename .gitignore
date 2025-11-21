@@ -1,0 +1,96 @@
+# macOS cruft
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editor swap/backup files
+*~
+*.swp
+*.swo
+*.bak
+
+# Build output (CMake, Ninja, Make, etc.)
+build/
+**/CMakeFiles/
+**/CMakeScripts/
+**/CMakeCache.txt
+**/cmake_install.cmake
+**/Makefile
+**/CTestTestfile.cmake
+**/*.o
+**/*.obj
+**/*.lo
+**/*.la
+**/*.a
+**/*.so
+**/*.dylib
+**/*.dll
+**/*.exe
+**/*.out
+**/*.app
+**/*.d
+
+# Generated libs/binaries from inside-track builds
+inside-track/build/
+inside-track/libinside_track_engine.a
+inside-track/**/publish_log
+inside-track/**/analyze_config
+inside-track/**/audit_race
+inside-track/**/bench_vdf
+inside-track/**/generate_seeds
+inside-track/**/sim_determinism
+
+# Package managers / tooling
+node_modules/
+pnpm-lock.yaml
+package-lock.json
+.npm/
+.yarn/
+.pnp.*
+dist/
+tmp/
+*.cache
+
+# IDE / tooling state
+.vscode/
+.idea/
+.clangd/
+.cquery_cached_index/
+.DS_Store?
+
+# Logs and runtime data
+*.log
+*.pid
+*.seed
+*.stackdump
+
+# Sensitive configuration
+.env
+.env.*
+*.pem
+*.key
+*.crt
+*.pfx
+*.p12
+*.der
+*.secret
+
+# Circom / snarkjs generated artifacts
+*.r1cs
+*.zkey
+*.ptau
+*.wtns
+*.sym
+*.wasm
+
+# Proof / witness outputs
+proof.json
+public.json
+witness.wtns
+build/mini_race_js/
+
+# Test / coverage
+coverage/
+*.lcov
+.nyc_output/
+.coverage
