@@ -60,8 +60,6 @@ TimeLockedCiphertext TimeLockEncryptor::encrypt(const std::string& plaintext,
     out.iterations = iterations_;
     out.ciphertextHex = bytesToHex(cipher.data(), cipher.size());
     out.nonceHex = bytesToHex(nonce.data(), nonce.size());
-    out.vdfProofHex = r.proofHex;
-    out.vdfOutputHex = r.outputHex;
     return out;
 }
 
@@ -73,17 +71,15 @@ std::optional<std::string> TimeLockEncryptor::decrypt(const TimeLockedCiphertext
         return std::nullopt;
     }
 
-    if (ciph.vdfProofHex.empty() || ciph.vdfOutputHex.empty()) {
+    if (ciph.puzzlePreimage.empty()) {
         return std::nullopt;
     }
 
     WesolowskiVdf vdf(iterations_);
-    VdfResult claimed{ ciph.vdfOutputHex, ciph.vdfProofHex, iterations_ };
-    if (!vdf.verify(ciph.puzzlePreimage, claimed)) {
-        return std::nullopt;
-    }
+    // Recompute the VDF locally so decryption always incurs the sequential delay.
+    VdfResult evaluated = vdf.evaluate(ciph.puzzlePreimage);
 
-    std::string keyHex = deriveKey(ciph.vdfOutputHex);
+    std::string keyHex = deriveKey(evaluated.outputHex);
     std::vector<unsigned char> key = hexToBytes(keyHex);
     std::vector<unsigned char> nonce = hexToBytes(ciph.nonceHex);
     std::vector<unsigned char> cipher = hexToBytes(ciph.ciphertextHex);

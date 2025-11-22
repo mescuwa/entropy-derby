@@ -548,8 +548,7 @@ EncryptedBetTicket ParimutuelRaceSession::recordEncrypted(const TimeLockedCipher
     ticket.ciphertext = cipher;
     std::ostringstream leaf;
     leaf << bettorId << "|" << cipher.puzzlePreimage << "|" << cipher.ciphertextHex << "|"
-         << cipher.nonceHex << "|" << cipher.vdfProofHex << "|" << cipher.vdfOutputHex << "|"
-         << cipher.iterations;
+         << cipher.nonceHex << "|" << cipher.iterations;
     ticket.leafHash = ProvablyFairRng::hashSeed(leaf.str());
     std::string expectedPrefix = buildTimelockContextLabel(betIntakeConfig, serverSeed) + ":";
     if (!hasPrefix(ticket.ciphertext.puzzlePreimage, expectedPrefix)) {

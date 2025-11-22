@@ -13,8 +13,6 @@ struct TimeLockedCiphertext {
     std::uint64_t iterations = 0;
     std::string ciphertextHex;
     std::string nonceHex;
-    std::string vdfProofHex;
-    std::string vdfOutputHex;
 };
 
 class TimeLockEncryptor {

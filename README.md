@@ -134,7 +134,7 @@ Planned future directories (`server/`, `web/frontend/`, `docker/`, `tests/`) can
 ## New Research-Grade Features
 
 - **Threshold entropy**: `ThresholdBlsRng` models a BLS-style DKG so no single participant can withhold reveals after seeing the outcome. The legacy commit–reveal RNG remains available.
-- **Timelock betting**: `TimeLockEncryptor` wraps the Wesolowski VDF to encrypt bet payloads until betting closes, mitigating front-running; puzzles are scoped to `timelockContext:deploymentId[|chainId]:serverSeed` (matching `BetIntakeConfig`) and rejected when the context mismatches to block cross-environment replays.
+- **Timelock betting**: `TimeLockEncryptor` wraps the Wesolowski VDF to encrypt bet payloads until betting closes, forcing decryptors to recompute the puzzle before learning the plaintext; puzzles are scoped to `timelockContext:deploymentId[|chainId]:serverSeed` (matching `BetIntakeConfig`) and rejected when the context mismatches to block cross-environment replays.
 - **Encrypted bet quarantine**: malformed or tampered ciphertexts are skipped instead of crashing settlement, with every failure appended to the transcript so auditors can prove availability even under adversarial input.
 - **Deterministic math**: Gaussian noise uses Boost.Multiprecision Box–Muller, OU dynamics stay in `Fixed64`, and all payouts stay in fixed-point to remove floating-point forks.
 - **Chaos + ZK POC**: Horse interactions (drafting/blocking/chaos coupling) make the sim sensitive to initial conditions, and a `zk/` Circom proof-of-concept shows how to arithmetize one tick.
