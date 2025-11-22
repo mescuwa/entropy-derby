@@ -36,7 +36,12 @@ std::string benchGmp(std::uint64_t iterations, const std::string& input) {
 int main() {
     using namespace std::chrono_literals;
 
-    std::vector<std::uint64_t> difficulties = { 100'000, 1'000'000, 3'000'000, kDefaultWesolowskiIterations };
+    std::vector<std::uint64_t> difficulties = {
+        100'000,
+        1'000'000,
+        3'000'000,
+        it::kDefaultWesolowskiIterations,
+    };
     const std::string payload = "bench-vdf-payload";
 
     for (auto diff : difficulties) {
