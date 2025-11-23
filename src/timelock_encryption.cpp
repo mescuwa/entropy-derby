@@ -20,7 +20,7 @@ bool ensureSodiumReady() {
 } // namespace
 
 TimeLockEncryptor::TimeLockEncryptor(std::uint64_t iterations)
-    : iterations_(iterations) {
+    : iterations_(iterations), raceLock_(nullptr) {
     if (iterations_ == 0) {
         throw std::invalid_argument("TimeLockEncryptor requires positive iterations");
     }
@@ -29,37 +29,44 @@ TimeLockEncryptor::TimeLockEncryptor(std::uint64_t iterations)
     }
 }
 
+void TimeLockEncryptor::initializeRace(const std::string& contextLabel) {
+    if (raceLock_) {
+        throw std::runtime_error("Race already initialized");
+    }
+    raceLock_ = std::make_unique<RaceLevelTimeLock>(iterations_);
+    raceLock_->initialize(contextLabel);
+}
+
+RaceLevelTimeLockParams TimeLockEncryptor::getRaceParams() const {
+    if (!raceLock_) {
+        throw std::runtime_error("Race not initialized");
+    }
+    return raceLock_->exportParams();
+}
+
+void TimeLockEncryptor::importRaceParams(const RaceLevelTimeLockParams& params) {
+    if (raceLock_) {
+        throw std::runtime_error("Cannot import params into already initialized race");
+    }
+    raceLock_ = std::make_unique<RaceLevelTimeLock>(iterations_);
+    raceLock_->importParams(params);
+}
+
 TimeLockedCiphertext TimeLockEncryptor::encrypt(const std::string& plaintext,
                                                 const std::string& contextLabel) {
-    std::vector<unsigned char> secret(32);
-    randombytes_buf(secret.data(), secret.size());
-
-    std::string seedHex = bytesToHex(secret.data(), secret.size());
-    std::ostringstream preimage;
-    preimage << contextLabel << ":" << seedHex;
-
-    WesolowskiVdf vdf(iterations_);
-    VdfResult r = vdf.evaluate(preimage.str());
-    std::string keyHex = deriveKey(r.outputHex);
-
-    std::vector<unsigned char> key = hexToBytes(keyHex);
-    std::vector<unsigned char> nonce(crypto_secretbox_NONCEBYTES);
-    randombytes_buf(nonce.data(), nonce.size());
-
-    std::vector<unsigned char> cipher(plaintext.size() + crypto_secretbox_MACBYTES);
-    if (crypto_secretbox_easy(cipher.data(),
-                              reinterpret_cast<const unsigned char*>(plaintext.data()),
-                              plaintext.size(),
-                              nonce.data(),
-                              key.data()) != 0) {
-        throw std::runtime_error("crypto_secretbox_easy failed");
+    if (!raceLock_) {
+        throw std::runtime_error("Race not initialized; call initializeRace() first");
     }
 
+    // Use race-level public-key encryption (fast, no VDF)
+    std::string ciphertextHex = raceLock_->encrypt(plaintext);
+
     TimeLockedCiphertext out;
-    out.puzzlePreimage = preimage.str();
+    out.ciphertextHex = ciphertextHex;
     out.iterations = iterations_;
-    out.ciphertextHex = bytesToHex(cipher.data(), cipher.size());
-    out.nonceHex = bytesToHex(nonce.data(), nonce.size());
+    // Deprecated fields left empty
+    out.puzzlePreimage = "";
+    out.nonceHex = "";
     return out;
 }
 
@@ -67,37 +74,35 @@ std::optional<std::string> TimeLockEncryptor::decrypt(const TimeLockedCiphertext
     if (!ensureSodiumReady()) {
         return std::nullopt;
     }
+    if (!raceLock_) {
+        return std::nullopt;
+    }
     if (ciph.iterations != iterations_) {
         return std::nullopt;
     }
 
-    if (ciph.puzzlePreimage.empty()) {
+    // Race key must be unlocked before decryption
+    // Caller must explicitly call unlockRaceKey() first
+    if (!raceLock_->isUnlocked()) {
         return std::nullopt;
     }
 
-    WesolowskiVdf vdf(iterations_);
-    // Recompute the VDF locally so decryption always incurs the sequential delay.
-    VdfResult evaluated = vdf.evaluate(ciph.puzzlePreimage);
+    // Decrypt using unlocked private key (fast)
+    return raceLock_->decrypt(ciph.ciphertextHex);
+}
 
-    std::string keyHex = deriveKey(evaluated.outputHex);
-    std::vector<unsigned char> key = hexToBytes(keyHex);
-    std::vector<unsigned char> nonce = hexToBytes(ciph.nonceHex);
-    std::vector<unsigned char> cipher = hexToBytes(ciph.ciphertextHex);
-
-    if (cipher.size() < crypto_secretbox_MACBYTES) {
-        return std::nullopt;
+bool TimeLockEncryptor::unlockRaceKey() {
+    if (!raceLock_) {
+        return false;
     }
+    return raceLock_->unlockSecretKey();
+}
 
-    std::vector<unsigned char> plain(cipher.size() - crypto_secretbox_MACBYTES);
-    if (crypto_secretbox_open_easy(plain.data(),
-                                   cipher.data(),
-                                   cipher.size(),
-                                   nonce.data(),
-                                   key.data()) != 0) {
-        return std::nullopt;
+bool TimeLockEncryptor::isRaceKeyUnlocked() const {
+    if (!raceLock_) {
+        return false;
     }
-
-    return std::string(reinterpret_cast<char*>(plain.data()), plain.size());
+    return raceLock_->isUnlocked();
 }
 
 std::vector<unsigned char> TimeLockEncryptor::hexToBytes(const std::string& hex) const {

@@ -433,7 +433,10 @@ void ParimutuelRaceSession::openBetting() {
     betsMaterialized_ = false;
     betEncryptor_.reset();
     ensureTimelockReady();
-    (void)buildTimelockContextLabel(betIntakeConfig, serverSeed);
+
+    // Initialize race-level timelock with VDF-protected keypair
+    std::string timelockContext = buildTimelockContextLabel(betIntakeConfig, serverSeed);
+    betEncryptor_->initializeRace(timelockContext);
 }
 
 void ParimutuelRaceSession::closeBetting() {
@@ -547,14 +550,10 @@ EncryptedBetTicket ParimutuelRaceSession::recordEncrypted(const TimeLockedCipher
     ticket.bettorId = bettorId;
     ticket.ciphertext = cipher;
     std::ostringstream leaf;
-    leaf << bettorId << "|" << cipher.puzzlePreimage << "|" << cipher.ciphertextHex << "|"
-         << cipher.nonceHex << "|" << cipher.iterations;
+    // Updated leaf hash for race-level encryption (no per-bet puzzle preimage)
+    leaf << bettorId << "|" << cipher.ciphertextHex << "|" << cipher.iterations;
     ticket.leafHash = ProvablyFairRng::hashSeed(leaf.str());
-    std::string expectedPrefix = buildTimelockContextLabel(betIntakeConfig, serverSeed) + ":";
-    if (!hasPrefix(ticket.ciphertext.puzzlePreimage, expectedPrefix)) {
-        recordInvalidBet(ticket, "timelock_context_mismatch");
-        throw std::runtime_error("Encrypted bet scoped to the wrong deployment or chain");
-    }
+
     if (!encryptedBetLeafs_.insert(ticket.leafHash).second) {
         recordInvalidBet(ticket, "duplicate_ticket");
         throw std::runtime_error("Duplicate encrypted bet ticket");
@@ -578,7 +577,12 @@ void ParimutuelRaceSession::materializeEncryptedBets() {
         return;
     }
     ensureTimelockReady();
-    const std::string expectedPrefix = buildTimelockContextLabel(betIntakeConfig, serverSeed) + ":";
+
+    // Unlock the race-level private key (solves VDF once for all bets)
+    if (!betEncryptor_->unlockRaceKey()) {
+        throw std::runtime_error("Failed to unlock race timelock key");
+    }
+
     std::unordered_set<std::string> materializedLeaves;
     materializedLeaves.reserve(encryptedBets_.size());
     for (const auto& ticket : encryptedBets_) {
@@ -586,10 +590,8 @@ void ParimutuelRaceSession::materializeEncryptedBets() {
             recordInvalidBet(ticket, "duplicate_ticket");
             continue;
         }
-        if (!hasPrefix(ticket.ciphertext.puzzlePreimage, expectedPrefix)) {
-            recordInvalidBet(ticket, "timelock_context_mismatch");
-            continue;
-        }
+
+        // Decrypt using unlocked private key (fast, no VDF per bet)
         auto plain = betEncryptor_->decrypt(ticket.ciphertext);
         if (!plain) {
             recordInvalidBet(ticket, "decrypt_failed");

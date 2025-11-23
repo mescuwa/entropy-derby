@@ -26,6 +26,7 @@ add_library(inside_track_engine
     src/secure_random.cpp
     src/transcript_log.cpp
     src/vdf.cpp
+    src/race_timelock.cpp
     src/timelock_encryption.cpp
 )
 
