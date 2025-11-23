@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.16)
 
 project(inside-track LANGUAGES CXX)
 
+enable_testing()
+
 if(POLICY CMP0167)
     cmake_policy(SET CMP0167 NEW)
 endif()
@@ -84,6 +86,10 @@ target_link_libraries(publish_log PRIVATE inside_track_engine)
 
 add_executable(sim_determinism tests/determinism.cpp)
 target_link_libraries(sim_determinism PRIVATE inside_track_engine)
+
+add_executable(race_timelock_test tests/test_race_timelock.cpp)
+target_link_libraries(race_timelock_test PRIVATE inside_track_engine)
+add_test(NAME race_timelock COMMAND race_timelock_test)
 
 option(ENABLE_GMP_BENCHMARK "Enable GMP comparison in VDF benchmark" OFF)
 if(ENABLE_GMP_BENCHMARK)

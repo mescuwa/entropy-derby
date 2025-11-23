@@ -56,10 +56,12 @@ void RaceLevelTimeLock::initialize(const std::string& contextLabel) {
     // Evaluate VDF to derive encryption key for secret key
     WesolowskiVdf vdf(vdfIterations_);
     VdfResult vdfResult = vdf.evaluate(puzzlePreimage_);
+    vdfOutputHex_ = vdfResult.outputHex;
+    vdfProofHex_ = vdfResult.proofHex;
 
     // Encrypt the secret key using VDF-derived key
     // Derive encryption key from VDF output
-    std::string keyHex = deriveKeyFromVdf(vdfResult.outputHex);
+    std::string keyHex = deriveKeyFromVdf(vdfOutputHex_);
     std::vector<unsigned char> key = hexToBytes(keyHex);
 
     // Generate nonce for secret key encryption
@@ -115,6 +117,8 @@ RaceLevelTimeLockParams RaceLevelTimeLock::exportParams() const {
     RaceLevelTimeLockParams params;
     params.publicKeyHex = getPublicKeyHex();
     params.puzzlePreimage = getPuzzlePreimage();
+    params.vdfOutputHex = vdfOutputHex_;
+    params.vdfProofHex = vdfProofHex_;
     params.encryptedSecretKeyHex = getEncryptedSecretKeyHex();
     params.encryptedSecretNonceHex = getEncryptedSecretNonceHex();
     params.vdfIterations = vdfIterations_;
@@ -134,6 +138,8 @@ void RaceLevelTimeLock::importParams(const RaceLevelTimeLockParams& params) {
     publicKey_ = hexToBytes(params.publicKeyHex);
     encryptedSecretKey_ = hexToBytes(params.encryptedSecretKeyHex);
     encryptedSecretNonce_ = hexToBytes(params.encryptedSecretNonceHex);
+    vdfOutputHex_ = params.vdfOutputHex;
+    vdfProofHex_ = params.vdfProofHex;
 
     if (publicKey_.size() != crypto_box_PUBLICKEYBYTES) {
         throw std::invalid_argument("Invalid public key size in imported params");
@@ -153,13 +159,19 @@ bool RaceLevelTimeLock::unlockSecretKey() {
     if (unlocked_) {
         return true; // Already unlocked
     }
+    if (vdfOutputHex_.empty() || vdfProofHex_.empty()) {
+        return false;
+    }
 
-    // Solve the VDF puzzle (expensive operation)
+    // Verify cached VDF proof (cheap)
     WesolowskiVdf vdf(vdfIterations_);
-    VdfResult vdfResult = vdf.evaluate(puzzlePreimage_);
+    VdfResult cached{ vdfOutputHex_, vdfProofHex_, vdfIterations_ };
+    if (!vdf.verify(puzzlePreimage_, cached)) {
+        return false;
+    }
 
     // Decrypt the secret key using VDF-derived key
-    if (!decryptSecretKeyWithVdf(vdfResult.outputHex)) {
+    if (!decryptSecretKeyWithVdf(vdfOutputHex_)) {
         return false;
     }
 

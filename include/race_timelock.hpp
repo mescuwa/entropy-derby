@@ -14,9 +14,14 @@ namespace it {
 struct RaceLevelTimeLockParams {
     std::string publicKeyHex;            // Public key for bet encryption (32 bytes hex)
     std::string puzzlePreimage;          // VDF puzzle input
+    std::uint64_t vdfIterations = 0;     // VDF difficulty
+
+    // Internal-only VDF solution/proof exported for engine-side verification flows.
+    std::string vdfOutputHex;
+    std::string vdfProofHex;
+
     std::string encryptedSecretKeyHex;   // Secret key encrypted with VDF-derived key
     std::string encryptedSecretNonceHex; // Nonce for secret key encryption
-    std::uint64_t vdfIterations = 0;     // VDF difficulty
 };
 
 // Race-level timelock: one VDF puzzle protects the decryption key for all bets in a race.
@@ -30,6 +35,12 @@ struct RaceLevelTimeLockParams {
 //
 // This leverages Wesolowski VDF's asymmetric verification property:
 // one expensive evaluation, many cheap encryptions.
+//
+// NOTE: This implementation enforces a race-level delay for honest parties and
+// enables "one expensive evaluation, many cheap verifications." It does NOT
+// prevent a malicious race organizer from precomputing the VDF output and
+// caching the race secret key; doing so would require integrating a VDE/MPC
+// flow as outlined in the advisory.
 class RaceLevelTimeLock {
 public:
     // Create a new race-level timelock with specified VDF difficulty
@@ -82,6 +93,9 @@ private:
     // Encrypted secret key storage
     std::vector<unsigned char> encryptedSecretKey_;
     std::vector<unsigned char> encryptedSecretNonce_;
+
+    std::string vdfOutputHex_;
+    std::string vdfProofHex_;
 
     bool initialized_ = false;
     bool unlocked_ = false;

@@ -33,8 +33,12 @@ void TimeLockEncryptor::initializeRace(const std::string& contextLabel) {
     if (raceLock_) {
         throw std::runtime_error("Race already initialized");
     }
+    if (contextLabel.empty()) {
+        throw std::invalid_argument("contextLabel must not be empty");
+    }
     raceLock_ = std::make_unique<RaceLevelTimeLock>(iterations_);
     raceLock_->initialize(contextLabel);
+    raceContextLabel_ = contextLabel;
 }
 
 RaceLevelTimeLockParams TimeLockEncryptor::getRaceParams() const {
@@ -50,6 +54,7 @@ void TimeLockEncryptor::importRaceParams(const RaceLevelTimeLockParams& params) 
     }
     raceLock_ = std::make_unique<RaceLevelTimeLock>(iterations_);
     raceLock_->importParams(params);
+    raceContextLabel_.clear();
 }
 
 TimeLockedCiphertext TimeLockEncryptor::encrypt(const std::string& plaintext,
@@ -57,15 +62,20 @@ TimeLockedCiphertext TimeLockEncryptor::encrypt(const std::string& plaintext,
     if (!raceLock_) {
         throw std::runtime_error("Race not initialized; call initializeRace() first");
     }
+    if (raceContextLabel_.empty()) {
+        throw std::runtime_error("Race context unavailable; initializeRace() required for encrypt");
+    }
+    if (!contextLabel.empty() && contextLabel != raceContextLabel_) {
+        throw std::runtime_error("Timelock context mismatch for encryption");
+    }
 
     // Use race-level public-key encryption (fast, no VDF)
     std::string ciphertextHex = raceLock_->encrypt(plaintext);
 
     TimeLockedCiphertext out;
+    out.puzzlePreimage = raceContextLabel_;
     out.ciphertextHex = ciphertextHex;
     out.iterations = iterations_;
-    // Deprecated fields left empty
-    out.puzzlePreimage = "";
     out.nonceHex = "";
     return out;
 }

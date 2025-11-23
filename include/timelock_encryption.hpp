@@ -10,15 +10,15 @@
 
 namespace it {
 
-// Ciphertext encrypted with race-level timelock
-// Uses public-key encryption; no per-bet VDF required
 struct TimeLockedCiphertext {
-    std::string ciphertextHex;        // crypto_box_seal output
-    std::uint64_t iterations = 0;     // VDF iterations (for compatibility)
-
-    // Deprecated fields (kept for backward compatibility, always empty)
+    // For legacy reasons this field is called puzzlePreimage, but at race
+    // level it now functions as a context label that binds ciphertexts to a
+    // deployment/chain/race.
     std::string puzzlePreimage;
-    std::string nonceHex;
+
+    std::uint64_t iterations = 0;     // VDF iterations (for compatibility)
+    std::string ciphertextHex;        // crypto_box_seal output
+    std::string nonceHex;             // Unused for seal, kept for ABI
 };
 
 // TimeLockEncryptor now uses race-level timelock architecture
@@ -40,9 +40,12 @@ public:
     // Import race parameters (for decryption without initialization)
     void importRaceParams(const RaceLevelTimeLockParams& params);
 
-    // Encrypt plaintext using race public key (fast, no VDF)
+    // Encrypt plaintext using race public key (fast, no VDF). The optional
+    // contextLabel argument is now only used as a guardrail: non-empty values
+    // must match the race-level context set during initializeRace(), otherwise
+    // encryption fails.
     TimeLockedCiphertext encrypt(const std::string& plaintext,
-                                 const std::string& contextLabel = "bet");
+                                 const std::string& contextLabel = "");
 
     // Decrypt ciphertext using VDF-unlocked private key
     // First call triggers VDF evaluation (expensive)
@@ -59,6 +62,7 @@ public:
 private:
     std::uint64_t iterations_;
     mutable std::unique_ptr<RaceLevelTimeLock> raceLock_;
+    std::string raceContextLabel_;
 
     std::vector<unsigned char> hexToBytes(const std::string& hex) const;
     std::string bytesToHex(const unsigned char* data, std::size_t len) const;

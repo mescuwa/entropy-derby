@@ -549,9 +549,19 @@ EncryptedBetTicket ParimutuelRaceSession::recordEncrypted(const TimeLockedCipher
     EncryptedBetTicket ticket;
     ticket.bettorId = bettorId;
     ticket.ciphertext = cipher;
+
+    std::string expectedContext = buildTimelockContextLabel(betIntakeConfig, serverSeed);
+    if (cipher.puzzlePreimage != expectedContext) {
+        ticket.leafHash =
+            ProvablyFairRng::hashSeed("timelock_context_mismatch:" + bettorId + ":" +
+                                      cipher.ciphertextHex);
+        recordInvalidBet(ticket, "timelock_context_mismatch");
+        throw std::runtime_error("Encrypted bet scoped to the wrong deployment or chain");
+    }
+
     std::ostringstream leaf;
-    // Updated leaf hash for race-level encryption (no per-bet puzzle preimage)
-    leaf << bettorId << "|" << cipher.ciphertextHex << "|" << cipher.iterations;
+    leaf << bettorId << "|" << cipher.puzzlePreimage << "|" << cipher.ciphertextHex << "|"
+         << cipher.iterations;
     ticket.leafHash = ProvablyFairRng::hashSeed(leaf.str());
 
     if (!encryptedBetLeafs_.insert(ticket.leafHash).second) {
