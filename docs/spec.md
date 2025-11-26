@@ -16,7 +16,7 @@ Every subsystem is swappable thanks to the `RandomSource` interface and the narr
 ## Dependency Notes
 
 - The project explicitly targets a VRF-enabled libsodium distribution (Algorand fork). Builds guard on `crypto_vrf_*` being present; operators should pin the version in their runbooks.
-- Threshold entropy requires either `blst` (recommended, provide include/lib paths and pass `-DIT_ENABLE_BLST=ON`) or RELIC (`-DIT_ENABLE_RELIC=ON` with `pkg-config`).
+- Threshold entropy now requires the [`blst`](https://github.com/supranational/blst) backend (provide include/lib paths and pass `-DIT_ENABLE_BLST=ON`). The older RELIC backend has been deprecated and is no longer supported because its `hash_to_curve`/DST behavior was not wire-compatible with the IETF BLS12-381 draft.
 - Boost headers must be available for the deterministic math helpers.
 
 ## Threat Model Snapshot

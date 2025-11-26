@@ -74,7 +74,7 @@ Examples of issues that are very interesting:
 
 2. **Cryptographic implementation flaws**
    - Misuse of libsodium’s VRF API (`crypto_vrf_*`).
-   - Incorrect BLS12-381 handling, POP verification, or aggregation (for the configured backend, e.g. `blst`/RELIC).
+   - Incorrect BLS12-381 handling, POP verification, or aggregation (for the configured backend, currently `blst` only; the legacy RELIC backend was deprecated due to incompatible `hash_to_curve`/DST semantics).
    - Broken timelock/VDF usage (e.g. an attacker can fake proofs or bypass the delay without detection).
 
 3. **Fairness and determinism breaks**

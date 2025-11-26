@@ -17,9 +17,9 @@ Provably fair horse-racing engine focused on research-grade transparency. The re
 
 - CMake ≥ 3.16 and a C++20 compiler (AppleClang 17/LLVM/GCC).
 - [libsodium](https://github.com/algorand/libsodium) **with** the Ed25519 VRF API (`crypto_vrf_*`). The upstream Homebrew/macOS package omits it—build and install the Algorand fork or another VRF-enabled distribution and ensure its `pkgconfig` directory is on `PKG_CONFIG_PATH`.
-- At least one threshold BLS backend:
-  - [`blst`](https://github.com/supranational/blst) (preferred): build from source, then point CMake at `-DBLST_INCLUDE_DIR=/path/include -DBLST_LIBRARY=/path/lib/libblst.a` with `-DIT_ENABLE_BLST=ON`.
-  - Or RELIC via `pkg-config` with `-DIT_ENABLE_RELIC=ON`.
+- Threshold BLS backend:
+  - [`blst`](https://github.com/supranational/blst): build from source, then point CMake at `-DBLST_INCLUDE_DIR=/path/include -DBLST_LIBRARY=/path/lib/libblst.a` with `-DIT_ENABLE_BLST=ON`.  
+    The legacy RELIC backend has been **deprecated and removed** due to incompatible `hash_to_curve`/DST semantics; BLST is now required for `ThresholdBlsRng`.
 - Boost headers (header-only usage of `boost::multiprecision::cpp_dec_float_50` and constants).
 
 Example dependency setup:
