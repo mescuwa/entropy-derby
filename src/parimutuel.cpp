@@ -1,7 +1,9 @@
 #include "parimutuel.hpp"
 
 #include "rng.hpp"
+#include "secure_random.hpp"
 
+#include <array>
 #include <algorithm>
 #include <cstdlib>
 #include <iomanip>
@@ -10,6 +12,8 @@
 #include <stdexcept>
 #include <unordered_set>
 #include <vector>
+
+#include <sodium.h>
 
 namespace it {
 
@@ -54,12 +58,9 @@ std::string resolveChainId(const BetIntakeConfig& cfg) {
     return trim(env);
 }
 
-std::string buildTimelockContextLabel(const BetIntakeConfig& cfg, const std::string& serverSeed) {
+std::string buildTimelockContextLabel(const BetIntakeConfig& cfg) {
     if (cfg.timelockContext.empty()) {
         throw std::runtime_error("Bet timelock context must not be empty");
-    }
-    if (serverSeed.empty()) {
-        throw std::runtime_error("Server seed must be initialized before sealing encrypted bets");
     }
     std::ostringstream oss;
     oss << cfg.timelockContext << ":" << resolveDeploymentId(cfg);
@@ -67,7 +68,6 @@ std::string buildTimelockContextLabel(const BetIntakeConfig& cfg, const std::str
     if (!chainId.empty()) {
         oss << "|" << chainId;
     }
-    oss << ":" << serverSeed;
     return oss.str();
 }
 
@@ -183,14 +183,97 @@ std::unique_ptr<EntropyProtocol> makeEntropyCoordinator(const EntropyConfig& cfg
     return std::make_unique<CollaborativeRng>(cfg.collaborative, sessionId);
 }
 
-std::string encodeBetPayload(const Bet& bet, const std::string& bettorId, const std::string& seed) {
+std::string hexEncode(const unsigned char* data, std::size_t len) {
     std::ostringstream oss;
-    oss << bet.horseId << ":" << bet.stake << ":" << escapeField(bettorId) << ":" << seed;
+    oss << std::hex << std::setfill('0');
+    for (std::size_t i = 0; i < len; ++i) {
+        oss << std::setw(2) << static_cast<int>(data[i]);
+    }
+    return oss.str();
+}
+
+bool hexDecode(const std::string& hex, std::vector<unsigned char>& out) {
+    if (hex.size() % 2 != 0) {
+        return false;
+    }
+    out.clear();
+    out.reserve(hex.size() / 2);
+    for (std::size_t i = 0; i < hex.size(); i += 2) {
+        std::string byteString = hex.substr(i, 2);
+        unsigned int byte = 0;
+        std::istringstream iss(byteString);
+        iss >> std::hex >> byte;
+        if (iss.fail() || byte > 0xFF) {
+            return false;
+        }
+        out.push_back(static_cast<unsigned char>(byte));
+    }
+    return true;
+}
+
+std::string canonicalizeBetFields(const Bet& bet, const std::string& bettorIdEscaped) {
+    std::ostringstream oss;
+    oss << bet.horseId << ":" << bet.stake << ":" << bettorIdEscaped;
+    return oss.str();
+}
+
+std::string computeBetMacHex(const std::string& canonicalFields,
+                             const std::vector<std::uint8_t>& authKey) {
+    if (authKey.empty()) {
+        throw std::runtime_error("Bet authentication key is not initialized");
+    }
+    if (sodium_init() < 0) {
+        throw std::runtime_error("Unable to initialize libsodium for bet authentication");
+    }
+    std::array<unsigned char, crypto_generichash_BYTES> mac{};
+    if (crypto_generichash(mac.data(),
+                           mac.size(),
+                           reinterpret_cast<const unsigned char*>(canonicalFields.data()),
+                           canonicalFields.size(),
+                           authKey.data(),
+                           authKey.size()) != 0) {
+        throw std::runtime_error("Failed to compute bet authentication tag");
+    }
+    return hexEncode(mac.data(), mac.size());
+}
+
+bool verifyBetMac(const std::string& canonicalFields,
+                  const std::vector<std::uint8_t>& authKey,
+                  const std::vector<unsigned char>& providedMac) {
+    if (authKey.empty()) {
+        return false;
+    }
+    if (sodium_init() < 0) {
+        throw std::runtime_error("Unable to initialize libsodium for bet authentication");
+    }
+    std::array<unsigned char, crypto_generichash_BYTES> expected{};
+    if (crypto_generichash(expected.data(),
+                           expected.size(),
+                           reinterpret_cast<const unsigned char*>(canonicalFields.data()),
+                           canonicalFields.size(),
+                           authKey.data(),
+                           authKey.size()) != 0) {
+        throw std::runtime_error("Failed to compute bet authentication tag");
+    }
+    if (providedMac.size() != expected.size()) {
+        return false;
+    }
+    return sodium_memcmp(expected.data(), providedMac.data(), expected.size()) == 0;
+}
+
+std::string encodeBetPayload(const Bet& bet,
+                             const std::string& bettorId,
+                             const std::vector<std::uint8_t>& authKey) {
+    std::string escaped = escapeField(bettorId);
+    std::string canonical = canonicalizeBetFields(bet, escaped);
+    std::string macHex = computeBetMacHex(canonical, authKey);
+    std::ostringstream oss;
+    oss << canonical << ":" << macHex;
     return oss.str();
 }
 
 std::optional<Bet> decodeBetPayload(const std::string& payload,
-                                    const std::string& seed,
+                                    const std::vector<std::uint8_t>& authKey,
                                     std::string& bettorOut) {
     std::vector<std::string> parts;
     std::stringstream ss(payload);
@@ -201,9 +284,18 @@ std::optional<Bet> decodeBetPayload(const std::string& payload,
     if (parts.size() != 4) {
         return std::nullopt;
     }
-    if (parts[3] != seed) {
+    std::vector<unsigned char> providedMac;
+    if (!hexDecode(parts[3], providedMac)) {
         return std::nullopt;
     }
+
+    std::ostringstream canonicalBuilder;
+    canonicalBuilder << parts[0] << ":" << parts[1] << ":" << parts[2];
+    std::string canonical = canonicalBuilder.str();
+    if (!verifyBetMac(canonical, authKey, providedMac)) {
+        return std::nullopt;
+    }
+
     Bet bet{};
     try {
         bet.horseId = static_cast<std::uint32_t>(std::stoul(parts[0]));
@@ -424,6 +516,7 @@ void ParimutuelRaceSession::openBetting() {
     pool.horseBets.clear();
     pool.totalPool = Fixed64();
     serverSeed = generateServerSeed();
+    betAuthKey_ = secureRandomBytes(crypto_generichash_KEYBYTES);
     rng = makeEntropyCoordinator(rngConfig, serverSeed);
     auditLog.clear();
     liabilitySnapshot.reset();
@@ -435,7 +528,7 @@ void ParimutuelRaceSession::openBetting() {
     ensureTimelockReady();
 
     // Initialize race-level timelock with VDF-protected keypair
-    std::string timelockContext = buildTimelockContextLabel(betIntakeConfig, serverSeed);
+    std::string timelockContext = buildTimelockContextLabel(betIntakeConfig);
     betEncryptor_->initializeRace(timelockContext);
 }
 
@@ -538,8 +631,8 @@ std::optional<std::string> ParimutuelRaceSession::getThresholdGroupKey() const {
 
 EncryptedBetTicket ParimutuelRaceSession::sealBet(const Bet& bet, const std::string& bettorId) {
     ensureTimelockReady();
-    std::string payload = encodeBetPayload(bet, bettorId, serverSeed);
-    std::string ctx = buildTimelockContextLabel(betIntakeConfig, serverSeed);
+    std::string payload = encodeBetPayload(bet, bettorId, betAuthKey_);
+    std::string ctx = buildTimelockContextLabel(betIntakeConfig);
     auto cipher = betEncryptor_->encrypt(payload, ctx);
     return recordEncrypted(cipher, bettorId);
 }
@@ -550,7 +643,7 @@ EncryptedBetTicket ParimutuelRaceSession::recordEncrypted(const TimeLockedCipher
     ticket.bettorId = bettorId;
     ticket.ciphertext = cipher;
 
-    std::string expectedContext = buildTimelockContextLabel(betIntakeConfig, serverSeed);
+    std::string expectedContext = buildTimelockContextLabel(betIntakeConfig);
     if (cipher.puzzlePreimage != expectedContext) {
         ticket.leafHash =
             ProvablyFairRng::hashSeed("timelock_context_mismatch:" + bettorId + ":" +
@@ -608,7 +701,7 @@ void ParimutuelRaceSession::materializeEncryptedBets() {
             continue;
         }
         std::string decodedBettor;
-        auto decoded = decodeBetPayload(*plain, serverSeed, decodedBettor);
+        auto decoded = decodeBetPayload(*plain, betAuthKey_, decodedBettor);
         if (!decoded) {
             recordInvalidBet(ticket, "payload_invalid");
             continue;

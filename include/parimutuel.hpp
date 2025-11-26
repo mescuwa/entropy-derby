@@ -125,6 +125,7 @@ struct ParimutuelRaceSession {
 
 private:
     std::unique_ptr<TimeLockEncryptor> betEncryptor_;
+    std::vector<std::uint8_t> betAuthKey_;
     std::vector<EncryptedBetTicket> encryptedBets_;
     std::unordered_set<std::string> encryptedBetLeafs_;
     SparseMerkleAccumulator betAccumulator_;
