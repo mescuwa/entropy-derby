@@ -94,3 +94,4 @@ coverage/
 *.lcov
 .nyc_output/
 .coverage
+.gpgtest
